@@ -8,6 +8,8 @@ A patch step for fixes, a minor step for additions and a major step when the lay
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-01
+
 ### Added
 
 - psmux runs tmux natively on Windows. `~/.tmux.conf` links to `terminal/tmux/windows/tmux.conf`, written for psmux: the Zacess theme from `%LOCALAPPDATA%\zacess`, the vim-tmux-navigator bindings written out and `Ctrl+B` then `f` opening the project list in a window of its own. `ta`, `tn`, `tls`, `tk`, `tka` and `tkillother` use psmux in PowerShell and Command Prompt. WSL keeps its own tmux and the Linux config.
