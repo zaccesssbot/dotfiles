@@ -8,6 +8,27 @@ A patch step for fixes, a minor step for additions and a major step when the lay
 
 ## [Unreleased]
 
+### Added
+
+- psmux runs tmux natively on Windows. `~/.tmux.conf` links to `terminal/tmux/windows/tmux.conf`, written for psmux: the Zacess theme from `%LOCALAPPDATA%\zacess`, the vim-tmux-navigator bindings written out and `Ctrl+B` then `f` opening the project list in a window of its own. `ta`, `tn`, `tls`, `tk`, `tka` and `tkillother` use psmux in PowerShell and Command Prompt. WSL keeps its own tmux and the Linux config.
+- Seven project layouts beside `ide` on macOS, Linux and Windows: `idev` (the dev server's logs), `imon` (btop and `docker ps`), `ilab` (build and serial monitor shells), `ilog` (two log shells), `iplay` (Zacess Games), `ireview` (`gh pr status` and lazygit) and `itest` (a test watcher for vitest, npm, artisan, pytest or cargo watch). Each opens a session named after the folder with a Zacess Scenes pane. Shared helpers keep every layout short.
+- btop and btop4win in the eight Zacess themes: `terminal/btop/themes`, generated from the palette by `build-themes.py` with every text colour at 4.5:1 or more. `zt` links them into btop's themes folder and sets `color_theme` and `theme_background` in `btop.conf`. On Windows that covers both folders btop4win reads, beside the exe and in `WinGet\Links`. The Brewfile and the Windows package list install btop.
+- Neovim: a debugger (nvim-dap with its panel, each language's adapter installed through Mason with `:DapInstall`), diffview on `Space g d` and `Space g h`, `Space x e` for a line's full error and `Space c r` to run the current file in the pane below. The run key covers Python, C and C++, Java, JavaScript, TypeScript, Lua, shell, PowerShell, Rust, Go and PHP.
+
+### Changed
+
+- `zt` updates programs that are already open: every psmux session (each one by name, since psmux keeps a server per session), every running Neovim over its socket or named pipe and btop on macOS and Linux through `SIGUSR2`. btop4win cannot reload, so `zt` says to reopen it.
+- `ta` and `tn` switch to the session from inside tmux or psmux instead of nesting, on every platform.
+- Inside psmux on Windows, `ide-pick` shows a numbered list read with `Read-Host`, since a real keyboard reached fzf there as plain letters. Outside psmux it keeps fzf.
+- `imon`'s Docker pane shows one short line and checks again every five seconds while Docker is not running, rather than repeating a connection error.
+- CI checks that each psmux theme is the shared tmux theme without the two options psmux rejects.
+
+### Fixed
+
+- The welcome banner shows in psmux panes, which psmux starts as `pwsh -NoExit -Command`.
+- `tkillother` on Windows keeps the session it is run from. psmux's `kill-session -a` closes the current session instead. A session made from outside psmux also keeps its spare server's name in `PSMUX_SESSION`, so the session is now read from `display-message`.
+- `Ctrl+H/J/K/L` reach Neovim in psmux once a language server is running. psmux names a pane after its newest child process, so Neovim marks its own pane instead.
+
 ## [2.4.1] - 2026-10-30
 
 ### Fixed

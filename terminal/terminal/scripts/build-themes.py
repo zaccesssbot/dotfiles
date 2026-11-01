@@ -80,12 +80,13 @@ def ghostty(t):
     return "\n".join(lines) + "\n"
 
 
-def tmux(t):
+def tmux(t, psmux=False):
     # tmux has one config for every theme, so the colours that differ per theme live in a file of
     # their own that zt links into the state folder and tmux.conf sources. The status bar keeps the
     # terminal's own text and background, the message line takes the accent pair, copy mode the
     # selection pair and the active pane border a different colour from the others, so the active
-    # pane is told apart by colour and by tmux's own border arrows
+    # pane is told apart by colour and by tmux's own border arrows. psmux (the Windows files) has no
+    # display-panes colour options and warns about each unknown one at every start, so they are left out
     ui = t["ui"]
     lines = [f"# {t['name']}", f"# {HEADER}",
              f'set -g status-style "fg={t["foreground"]},bg={t["background"]}"',
@@ -99,6 +100,43 @@ def tmux(t):
              f'set -g display-panes-colour "{ui["border"]}"',
              f'set -g display-panes-active-colour "{ui["border_active"]}"',
              f'set -g clock-mode-colour "{ui["accent"]}"']
+    if psmux:
+        lines = [line for line in lines if not line.startswith("set -g display-panes-")]
+    return "\n".join(lines) + "\n"
+
+
+def btop(t):
+    # btop draws every text slot straight on the terminal's background (zt turns on its
+    # theme_background), so each text slot is the foreground, the muted text or one of the
+    # palette's own terminal colours, which low_contrast() below holds to 7:1 (4.5:1 for a slot a
+    # theme marks dim). A slot a theme uses as a background shade gives way to the foreground. Box
+    # outlines, dividers, meters and graphs are not text; each box keeps its own hue so the four
+    # boxes stay told apart by colour as well as by their titles
+    ui = t["ui"]
+    c = colours16(t)
+
+    def slot(i):
+        return t["foreground"] if i in t["background_role"] else c[i]
+
+    red, green, yellow, blue, magenta, cyan = (slot(i) for i in range(1, 7))
+    bright_red, bright_green, _, bright_blue, bright_magenta, bright_cyan = (slot(i) for i in range(9, 15))
+    values = [
+        ("main_bg", t["background"]), ("main_fg", t["foreground"]), ("title", t["foreground"]),
+        ("hi_fg", cyan), ("selected_bg", t["selection_background"]), ("selected_fg", t["selection_foreground"]),
+        ("inactive_fg", ui["muted"]), ("graph_text", t["foreground"]), ("meter_bg", ui["line_highlight"]),
+        ("proc_misc", cyan), ("cpu_box", green), ("mem_box", yellow), ("net_box", magenta), ("proc_box", blue),
+        ("div_line", ui["muted"]),
+        ("temp_start", green), ("temp_mid", yellow), ("temp_end", red),
+        ("cpu_start", green), ("cpu_mid", yellow), ("cpu_end", red),
+        ("free_start", green), ("free_mid", green), ("free_end", bright_green),
+        ("cached_start", blue), ("cached_mid", blue), ("cached_end", bright_blue),
+        ("available_start", cyan), ("available_mid", cyan), ("available_end", bright_cyan),
+        ("used_start", red), ("used_mid", red), ("used_end", bright_red),
+        ("download_start", magenta), ("download_mid", magenta), ("download_end", bright_magenta),
+        ("upload_start", green), ("upload_mid", green), ("upload_end", bright_green),
+        ("process_start", cyan), ("process_mid", blue), ("process_end", magenta),
+    ]
+    lines = [f"# {t['name']}", f"# {HEADER}", ""] + [f'theme[{key}]="{value}"' for key, value in values]
     return "\n".join(lines) + "\n"
 
 
@@ -326,15 +364,23 @@ def outputs():
         hyper_file = base / "hyper" / "hyper.js"
         if hyper_file.exists():
             files[f"{platform}/hyper/hyper.js"] = hyper(hyper_file.read_text())
-    # the tmux folder beside this one: a themes/ folder in each platform folder it has or one flat
-    # themes/ folder where the layout keeps a single tmux.conf
+    # the tmux folder beside this one: a themes/ folder in each platform folder it has, plus a flat
+    # themes/ folder beside a shared tmux.conf (here macOS and Linux share one, Windows has its own)
     tmux_root = ROOT.parent / "tmux"
     if tmux_root.is_dir():
-        folders = [tmux_root / p for p in PLATFORMS if (tmux_root / p).is_dir()] or [tmux_root]
+        folders = [tmux_root / p for p in PLATFORMS if (tmux_root / p).is_dir()]
+        if (tmux_root / "tmux.conf").exists() or not folders:
+            folders.append(tmux_root)
         for folder in folders:
             for t in THEMES:
                 target = folder / "themes" / f"{slug(t)}.conf"
-                files[str(Path("..") / target.relative_to(ROOT.parent))] = tmux(t)
+                files[str(Path("..") / target.relative_to(ROOT.parent))] = tmux(t, psmux=folder.name == "windows")
+    # btop, beside this folder: one flat themes/ folder, since btop reads the same theme file on every
+    # system (btop4win on Windows)
+    btop_root = ROOT.parent / "btop"
+    if btop_root.is_dir():
+        for t in THEMES:
+            files[str(Path("..") / "btop" / "themes" / f"{slug(t)}.theme")] = btop(t)
     files["mac/iterm2/zacess.json"] = iterm()
     for t in THEMES:
         files[f"mac/terminal-app/{t['name']}.terminal"] = terminal_app(t)
@@ -371,7 +417,9 @@ def low_contrast():
                   ("message line", ui["accent_foreground"], ui["accent"], 7),
                   ("find match", t["foreground"], ui["find_match"], 4.5),
                   ("pane border", ui["border"], t["background"], 3),
-                  ("active pane border", ui["border_active"], t["background"], 3)]
+                  ("active pane border", ui["border_active"], t["background"], 3),
+                  # btop's inactive text, the one btop text slot that is not a terminal colour
+                  ("muted text", ui["muted"], t["background"], 4.5)]
         for i, value in enumerate(colours16(t)):
             if i in t["background_role"]:
                 continue

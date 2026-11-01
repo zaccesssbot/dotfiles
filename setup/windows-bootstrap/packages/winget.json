@@ -18,6 +18,7 @@
         { "PackageIdentifier": "BurntSushi.ripgrep.MSVC" },
         { "PackageIdentifier": "Neovim.Neovim" },
         { "PackageIdentifier": "JesseDuffield.lazygit" },
+        { "PackageIdentifier": "aristocratos.btop4win" },
         { "PackageIdentifier": "dandavison.delta" },
         { "PackageIdentifier": "koalaman.shellcheck" },
         { "PackageIdentifier": "Kitware.CMake" },

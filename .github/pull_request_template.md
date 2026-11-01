@@ -11,6 +11,7 @@ A short, clear description of the change in your own words.
 - [ ] `setup/defaults/`
 - [ ] `terminal/terminal/`
 - [ ] `terminal/tmux/`
+- [ ] `terminal/btop/`
 - [ ] `terminal/cli-tools/`
 - [ ] `git/gitconfig/`
 - [ ] `git/git-hooks/`

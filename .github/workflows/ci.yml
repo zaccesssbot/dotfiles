@@ -618,6 +618,12 @@ jobs:
           done
           tmux kill-session -t themes
 
+      - name: Check each Windows theme is the shared one without the options psmux rejects
+        run: |
+          for f in themes/zacess-*.conf; do
+            grep -v '^set -g display-panes' "$f" | diff - "windows/$f" || { echo "windows/$f differs from $f"; exit 1; }
+          done
+
   cli-tools:
     name: "cli-tools: Smoke test ripgrep, fzf and lazygit"
     needs: changes

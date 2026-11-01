@@ -5,6 +5,7 @@ tap "osx-cross/avr", trusted: true # AVR toolchain tap, needed for avr-gcc@14 be
 
 brew "assimp" # Portable library for importing many well-known 3D model formats
 brew "binaryen" # Compiler infrastructure and toolchain library for WebAssembly
+brew "btop" # Resource monitor. C++ version and continuation of bashtop and bpytop
 brew "composer" # Dependency manager for PHP
 brew "gh" # GitHub command-line tool
 brew "gifsicle" # GIF image/animation creator/editor

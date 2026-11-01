@@ -609,17 +609,40 @@ Defined in `20-shell-tools` on all platforms.
 
 ## tmux and Windows Terminal
 
-Defined in `21-tmux` on all platforms.
+Defined in `21-tmux` on all platforms. On Windows tmux is psmux, a native tmux that reads the same
+`~/.tmux.conf`; inside WSL the Linux versions run instead. Command Prompt reaches the Windows
+functions through `psrun.cmd`.
 
 | Command | Platform | What it does |
 | --- | --- | --- |
-| `tn <name>` | macOS / Linux | Create a new named tmux session |
-| `tls` | macOS / Linux | List tmux sessions |
-| `tk <name>` | macOS / Linux | Kill a named tmux session |
-| `tka` | macOS / Linux | Kill all tmux sessions |
-| `cluster` | macOS / Linux | Open a 4-pane tmux cluster layout |
+| `ta [name]` | All | Attach to a session (`main` by default), creating it when missing. Inside a session it switches to it instead of nesting |
+| `tn <name>` | All | Create a new named session. Inside a session it switches to it |
+| `tls` | All | List sessions |
+| `tk <name>` | All | Kill a named session |
+| `tka` | All | Kill every session |
+| `tkillother` | All | Kill every session except the one it is run from |
+| `cluster` | All | Open four panes, one per cluster node |
 | `wt-here` | Windows | Open a new Windows Terminal tab in the current directory |
 | `wt-split` | Windows | Split the current Windows Terminal pane |
+
+### Project layouts
+
+Each layout opens a session named after the folder (the current one by default), with a suffix
+for every layout but `ide` so two layouts of one folder can be open at once. Running a layout
+again goes back to its open session. Every layout has a Zacess Scenes pane following the shells
+in the session when Zacess Scenes is installed. The focus starts on the main pane.
+
+| Command | What it opens |
+| --- | --- |
+| `ide [folder]` | Neovim, a shell, a scene and a lazygit window |
+| `idev [folder]` | Neovim over a shell, the dev server's logs (`npm run dev` or `php artisan serve`) and a scene, plus lazygit |
+| `imon [folder]` | btop (btop4win on Windows) beside `docker ps` and a scene |
+| `ilab [folder]` | Neovim over a build shell, a serial monitor shell and a scene |
+| `ilog [folder]` | Two log shells side by side and a scene |
+| `iplay [folder]` | Zacess Games beside a scene |
+| `ireview [folder]` | Neovim over `gh pr status`, lazygit and a scene |
+| `itest [folder]` | Neovim over a test watcher (vitest or `npm test`, `php artisan test`, pytest or `cargo watch`), a shell and a scene, plus lazygit |
+| `ide-pick` | A list of the project folders in `IDE_ROOTS`; the one picked opens in `ide`. `Ctrl+B` then `f` opens it inside a session |
 
 ---
 

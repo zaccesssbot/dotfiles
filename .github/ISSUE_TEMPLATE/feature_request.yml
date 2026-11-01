@@ -25,6 +25,7 @@ body:
         - setup/defaults
         - terminal/terminal
         - terminal/tmux
+        - terminal/btop
         - terminal/cli-tools
         - git/gitconfig
         - git/git-hooks

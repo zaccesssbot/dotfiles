@@ -224,7 +224,15 @@ function Set-Neovim($Fixed, $Dark, $Light, $Now) {
     [IO.File]::WriteAllText($StateFile, "$line`n")
     if (-not (Get-Command nvim -ErrorAction SilentlyContinue)) { return Write-Result 'Neovim' 'not installed, theme saved for later' $false }
     $message = if ($Fixed) { $Fixed.Name } else { 'following the system' }
-    Write-Result 'Neovim' "$message, on next focus or start"
+    # every running Neovim listens on a named pipe (nvim.<pid>.0), so each is told to run the same
+    # apply() its focus autocmd runs, which rereads the state file written above
+    $reloaded = 0
+    foreach ($pipe in @(Get-ChildItem '\\.\pipe\' -ErrorAction SilentlyContinue | Where-Object Name -like 'nvim.*')) {
+        nvim --server "\\.\pipe\$($pipe.Name)" --remote-expr "execute('lua require([[config.theme]]).apply()')" *> $null
+        if ($LASTEXITCODE -eq 0) { $reloaded++ }
+    }
+    $when = if ($reloaded) { "applied to $reloaded open Neovim(s), the rest on start" } else { 'on next focus or start' }
+    Write-Result 'Neovim' "$message, $when"
 }
 
 function Set-Eclipse($Fixed, $Dark, $Light, $Now) {
@@ -320,6 +328,99 @@ function Set-Alacritty($Fixed, $Dark, $Light, $Now) {
     [IO.File]::WriteAllText($conf, ([regex]'zacess-[\w-]+\.toml').Replace($text, "zacess-$($theme.Id).toml", 1))
     $note = if ($Fixed) { '' } else { ' (Alacritty cannot follow the system, so this matches it now)' }
     Write-Result 'Alacritty' "$($theme.Name)$note"
+}
+
+# tmux (psmux on Windows): one config for every theme, so the colours that differ come from a
+# generated file per theme that terminal\tmux\windows\tmux.conf sources through this link. a link
+# rather than a copy, so the file psmux reads is always the repo's own
+$TmuxLink = Join-Path $env:LOCALAPPDATA 'zacess\tmux.conf'
+
+function Set-Tmux($Fixed, $Dark, $Light, $Now) {
+    $theme = if ($Fixed) { $Fixed } else { $Now }
+    $source = Join-Path $RepoRoot "terminal\tmux\windows\themes\zacess-$($theme.Id).conf"
+    if (-not (Test-Path $source)) { return Write-Result 'tmux' 'no theme files in terminal\tmux\windows, skipped' $false }
+    New-Item -ItemType Directory -Force (Split-Path $TmuxLink) | Out-Null
+    if (Test-Path $TmuxLink) { Remove-Item $TmuxLink -Force }
+    try {
+        New-Item -ItemType SymbolicLink -Path $TmuxLink -Target $source -ErrorAction Stop | Out-Null
+    } catch {
+        # a file link needs Developer Mode or an elevated shell; a copy still works until the next switch
+        Copy-Item $source $TmuxLink
+    }
+    $note = if ($Fixed) { '' } else { ' (tmux cannot follow the system, so this matches it now)' }
+    if (-not (Get-Command psmux -ErrorAction SilentlyContinue)) { return Write-Result 'tmux' "$($theme.Name)$note, psmux not installed, saved for later" $false }
+    # psmux keeps a server per session, so the colours are sourced into each open session by name
+    # (a plain source-file reaches only one). inside a pane psmux looks a session up only in that
+    # pane's own server, so its variables are cleared for these calls and put back after
+    $saved = @{}
+    foreach ($name in 'TMUX', 'TMUX_PANE', 'PSMUX_SESSION', 'PSMUX_TARGET_SESSION') {
+        $saved[$name] = [Environment]::GetEnvironmentVariable($name)
+        Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+    }
+    try {
+        $sessions = @(psmux list-sessions -F '#S' 2>$null | Where-Object { $_ })
+        foreach ($session in $sessions) { psmux source-file -t "=$session" $TmuxLink *> $null }
+    } finally {
+        foreach ($name in $saved.Keys) { if ($null -ne $saved[$name]) { Set-Item "Env:$name" $saved[$name] } }
+    }
+    # tmux.conf sources the same link when a session starts
+    $when = if ($sessions.Count) { "applied to the $($sessions.Count) open psmux session(s)" } else { 'at the next start' }
+    Write-Result 'tmux' "$($theme.Name)$note, $when"
+}
+
+# btop4win: a generated theme per Zacess theme in terminal\btop\themes. btop4win reads btop.conf and
+# a themes folder from the folder of the path it was started from, not a config folder. a winget
+# portable install keeps the exe under WinGet\Packages and puts a link to it, named btop.exe, in
+# WinGet\Links. btop started through that link reads WinGet\Links instead, so both folders get
+# the settings: the exe's own folder holds the themes (the shipped ones and the eight Zacess ones,
+# linked in) and the link's folder gets a link to that themes folder. each btop.conf has only
+# color_theme and theme_background rewritten. Get-BtopDirs returns the exe's folder first
+function Get-BtopDirs {
+    $command = Get-Command btop4win, btop -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $command) { return @() }
+    $item = Get-Item -LiteralPath $command.Source
+    if (-not $item.LinkType) { return @(Split-Path $item.FullName) }
+    $exe = @($item.Target)[0]
+    if (-not [IO.Path]::IsPathRooted($exe)) { $exe = Join-Path (Split-Path $item.FullName) $exe }
+    @((Split-Path $exe), (Split-Path $item.FullName))
+}
+
+function Set-BtopConf([string]$Conf, [string]$ThemeFile) {
+    # a list rather than an array, since PowerShell would unwrap a one-line file into a plain string
+    $lines = [Collections.Generic.List[string]]::new()
+    if (Test-Path -LiteralPath $Conf) { $lines.AddRange([IO.File]::ReadAllLines($Conf)) } else { $lines.Add('#? btop config, started by zt for the Zacess theme') }
+    foreach ($pair in @(@('color_theme', "`"$ThemeFile`""), @('theme_background', 'True'))) {
+        $index = $lines.FindIndex([Predicate[string]] { param($l) $l -match "^$($pair[0])\s*=" })
+        if ($index -ge 0) { $lines[$index] = "$($pair[0]) = $($pair[1])" } else { $lines.Add("$($pair[0]) = $($pair[1])") }
+    }
+    [IO.File]::WriteAllText($Conf, (($lines -join "`n") + "`n"))
+}
+
+function Set-Btop($Fixed, $Dark, $Light, $Now) {
+    $theme = if ($Fixed) { $Fixed } else { $Now }
+    $sourceDir = Join-Path $RepoRoot 'terminal\btop\themes'
+    if (-not (Test-Path (Join-Path $sourceDir "zacess-$($theme.Id).theme"))) { return Write-Result 'btop' 'no theme files in terminal\btop, skipped' $false }
+    $dirs = @(Get-BtopDirs)
+    if (-not $dirs) { return Write-Result 'btop' 'btop4win not installed, skipped' $false }
+    $dir = $dirs[0]
+    $themes = Join-Path $dir 'themes'
+    New-Item -ItemType Directory -Force $themes | Out-Null
+    foreach ($source in Get-ChildItem -LiteralPath $sourceDir -Filter 'zacess-*.theme') {
+        $link = Join-Path $themes $source.Name
+        if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link -Force }
+        # a file link needs Developer Mode or an elevated shell; a copy still works until the next switch
+        try { New-Item -ItemType SymbolicLink -Path $link -Target $source.FullName -ErrorAction Stop | Out-Null } catch { Copy-Item -LiteralPath $source.FullName $link }
+    }
+    foreach ($other in $dirs | Select-Object -Skip 1) {
+        # the link's folder sees the same themes through a folder link (a junction needs no rights)
+        $linked = Join-Path $other 'themes'
+        if (-not (Test-Path -LiteralPath $linked)) { New-Item -ItemType Junction -Path $linked -Target $themes | Out-Null }
+    }
+    foreach ($each in $dirs) { Set-BtopConf (Join-Path $each 'btop.conf') (Join-Path $each "themes\zacess-$($theme.Id).theme") }
+    $note = if ($Fixed) { '' } else { ' (btop cannot follow the system, so this matches it now)' }
+    # btop4win has no signal or command that rereads its config, so an open one keeps its colours
+    $open = if (Get-Process btop4win, btop -ErrorAction SilentlyContinue) { ', reopen btop to apply' } else { ', at its next start' }
+    Write-Result 'btop' "$($theme.Name)$note$open"
 }
 
 # the apps below have an apply script of their own beside their settings, which finds the app,
@@ -461,6 +562,8 @@ $PinApps = [ordered]@{
     'vivado' = @{ Tools = @('Set-Vivado'); Aliases = @(); Defaults = @() }
     'windows-terminal' = @{ Tools = @('Set-WindowsTerminal'); Aliases = @('wt', 'terminal', 'console'); Defaults = $DefaultValues }
     'alacritty' = @{ Tools = @('Set-Alacritty'); Aliases = @(); Defaults = @('default') }
+    'tmux' = @{ Tools = @('Set-Tmux'); Aliases = @('psmux'); Defaults = @() }
+    'btop' = @{ Tools = @('Set-Btop'); Aliases = @('btop4win'); Defaults = @() }
     'arduino' = @{ Tools = @('Set-ArduinoIDE'); Aliases = @('arduino-ide'); Defaults = @() }
     'notepad++' = @{ Tools = @('Set-NotepadPlusPlus'); Aliases = @('notepadplusplus', 'npp'); Defaults = @() }
     'thonny' = @{ Tools = @('Set-Thonny'); Aliases = @(); Defaults = @() }
@@ -481,7 +584,7 @@ foreach ($app in $PinApps.Keys) { foreach ($tool in $PinApps[$app].Tools) { $Too
 $LabelApp = @{
     'vs code' = 'vscode'; 'zed' = 'zed'; 'jetbrains' = 'jetbrains'; 'neovim' = 'neovim'; 'eclipse' = 'eclipse'
     'stm32cubeide' = 'stm32cubeide'; 'kicad' = 'kicad'; 'vivado' = 'vivado'; 'windows terminal' = 'windows-terminal'
-    'alacritty' = 'alacritty'; 'arduino ide' = 'arduino'; 'notepad++' = 'notepad++'; 'thonny' = 'thonny'
+    'alacritty' = 'alacritty'; 'tmux' = 'tmux'; 'btop' = 'btop'; 'arduino ide' = 'arduino'; 'notepad++' = 'notepad++'; 'thonny' = 'thonny'
     'ltspice' = 'ltspice'; 'proteus' = 'proteus'; 'zotero' = 'zotero'; 'obsidian' = 'obsidian'; 'matlab' = 'matlab'
     'processing' = 'processing'; 'microchip studio' = 'microchip-studio'; 'highlight' = 'highlight'
 }
@@ -1476,7 +1579,7 @@ if (-not $quiet) {
 # every tool runs at once in a runspace pool, so a switch takes about as long as the slowest tool.
 # each group's lines are collected and printed in this order, so the output reads as it always has
 $groups = @('Set-VSCode', 'Set-Zed', 'Set-JetBrains', 'Set-Neovim', 'Set-Eclipse', 'Set-STM32CubeIDE', 'Set-KiCad', 'Set-Vivado',
-    'Set-WindowsTerminal', 'Set-Alacritty', 'Set-ArduinoIDE', 'Set-NotepadPlusPlus', 'Set-Thonny', 'Set-LTspice', 'Set-Proteus', 'Set-Zotero',
+    'Set-WindowsTerminal', 'Set-Alacritty', 'Set-Tmux', 'Set-Btop', 'Set-ArduinoIDE', 'Set-NotepadPlusPlus', 'Set-Thonny', 'Set-LTspice', 'Set-Proteus', 'Set-Zotero',
     'Set-Obsidian', 'Set-MATLAB', 'Set-Processing', 'Set-MicrochipStudio', 'Set-Highlight')
 
 # each runspace starts with this script's functions and top-level values

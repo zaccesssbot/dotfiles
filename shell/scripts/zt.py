@@ -383,7 +383,30 @@ def neovim(fixed, dark, light, now):
     STATE_FILE.write_text((fixed.id if fixed else f"auto {dark.id} {light.id}") + "\n")
     if not shutil.which("nvim"):
         return report("Neovim", "not installed, theme saved for later", False)
-    report("Neovim", (fixed.name if fixed else "following the system") + ", on next focus or start")
+    reloaded = 0
+    for sock in nvim_sockets():
+        # the same apply() its focus autocmd runs, which rereads the state file written above. A
+        # socket left by a Neovim that has gone fails at once. A timeout covers one that hangs
+        try:
+            done = subprocess.run(["nvim", "--headless", "--server", str(sock), "--remote-expr",
+                                   "execute('lua require([[config.theme]]).apply()')"],
+                                  capture_output=True, timeout=5)
+            reloaded += done.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    when = f"applied to {reloaded} open Neovim(s), the rest on start" if reloaded else "on next focus or start"
+    report("Neovim", (fixed.name if fixed else "following the system") + ", " + when)
+
+
+def nvim_sockets():
+    """Every running Neovim's socket: nvim.<pid>.0 in $XDG_RUNTIME_DIR on Linux or in a folder under
+    $TMPDIR on macOS."""
+    found = set()
+    for root in filter(None, (os.environ.get("XDG_RUNTIME_DIR"), os.environ.get("TMPDIR"), "/tmp")):
+        base = Path(root)
+        found.update(base.glob("nvim.*.0"))
+        found.update(base.glob("nvim.*/*/nvim.*.0"))
+    return sorted(found)
 
 
 def workspace_settings(workspace):
@@ -845,6 +868,47 @@ def tmux(fixed, dark, light, now):
     report("tmux", f"{theme.name}{note}, {when}")
 
 
+# btop: a generated theme per Zacess theme in terminal/btop/themes. All eight are linked into btop's
+# own themes folder, so they sit in its Options menu beside the built-in ones. btop.conf's
+# color_theme points at the current one. theme_background makes btop draw on the terminal's own
+# background. Only those two keys are rewritten, so every other btop setting stays as it is
+BTOP_DIR = XDG_CONFIG / "btop"
+
+
+def set_btop_conf(conf, theme_file):
+    lines = conf.read_text().splitlines() if conf.exists() else ["#? btop config, started by zt for the Zacess theme"]
+    for key, value in (("color_theme", f'"{theme_file}"'), ("theme_background", "True")):
+        for i, line in enumerate(lines):
+            if re.match(rf"{key}\s*=", line):
+                lines[i] = f"{key} = {value}"
+                break
+        else:
+            lines.append(f"{key} = {value}")
+    conf.parent.mkdir(parents=True, exist_ok=True)
+    conf.write_text("\n".join(lines) + "\n")
+
+
+def btop(fixed, dark, light, now):
+    theme = fixed or now
+    source_dir = REPO_ROOT / "terminal" / "btop" / "themes"
+    if not (source_dir / f"zacess-{theme.id}.theme").exists():
+        return report("btop", "no theme files in terminal/btop, skipped", False)
+    themes = BTOP_DIR / "themes"
+    themes.mkdir(parents=True, exist_ok=True)
+    for source in source_dir.glob("zacess-*.theme"):
+        link = themes / source.name
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(source)
+    set_btop_conf(BTOP_DIR / "btop.conf", themes / f"zacess-{theme.id}.theme")
+    note = "" if fixed else " (btop cannot follow the system, so this matches it now)"
+    if not shutil.which("btop"):
+        return report("btop", f"{theme.name}{note}, btop not installed, saved for later", False)
+    # btop rereads btop.conf on SIGUSR2, so an open one takes the theme now
+    signalled = run("pkill", "-USR2", "-x", "btop").returncode == 0 if shutil.which("pkill") else False
+    report("btop", f"{theme.name}{note}, " + ("applied to the open btop" if signalled else "at its next start"))
+
+
 def current_tmux():
     if not shutil.which("tmux") and not TMUX_LINK.is_symlink():
         return None
@@ -1064,7 +1128,7 @@ def current_highlight():
     return None
 
 
-TOOLS = [vscode, zed, jetbrains, neovim, tmux, eclipse, stm32cubeide, kicad, processing, nextpad, vivado,
+TOOLS = [vscode, zed, jetbrains, neovim, tmux, btop, eclipse, stm32cubeide, kicad, processing, nextpad, vivado,
          arduino, thonny, matlab, ltspice, zotero, obsidian, terminal_app, iterm2, kitty, alacritty, ghostty, ptyxis,
          warp, highlight]
 
@@ -1267,6 +1331,7 @@ PIN_APPS = {
                   ("default",)),
     "neovim": (neovim, ("nvim", "vim"), None, DEFAULT_VALUES),
     "tmux": (tmux, (), tmux_default, ("default",)),
+    "btop": (btop, (), None, ()),
     "eclipse": (eclipse, (), None, ()),
     "stm32cubeide": (stm32cubeide, ("stm32",), None, ()),
     "kicad": (kicad, (), None, ()),
@@ -1294,7 +1359,7 @@ TERMINALS = ("terminal", "iterm2", "ghostty", "kitty", "alacritty", "warp", "tmu
 TOOL_APP = {entry[0]: app for app, entry in PIN_APPS.items()}
 # the labels zt prints, for zt doctor and zt current to find a pinned app
 LABEL_APP = {"vs code": "vscode", "zed": "zed", "jetbrains": "jetbrains", "neovim": "neovim", "zacess.nvim": "neovim",
-             "tmux": "tmux", "tmux server": "tmux", "eclipse": "eclipse", "stm32cubeide": "stm32cubeide",
+             "tmux": "tmux", "tmux server": "tmux", "btop": "btop", "eclipse": "eclipse", "stm32cubeide": "stm32cubeide",
              "kicad": "kicad", "processing": "processing", "nextpad++": "nextpad", "vivado": "vivado",
              "arduino ide": "arduino", "thonny": "thonny", "matlab": "matlab", "ltspice": "ltspice",
              "zotero": "zotero", "obsidian": "obsidian", "terminal.app": "terminal", "iterm2": "iterm2",

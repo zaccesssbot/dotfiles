@@ -47,5 +47,8 @@ try {
 # a program that runs pwsh -Command or -File reads everything printed as its result, so the
 # banner only shows in an interactive window
 $batch = [Environment]::GetCommandLineArgs() | Where-Object { $_ -match '^[-/](c|co|com|comm|comma|comman|command|f|fi|fil|file|e|ec|en|enc\w*|noni\w*)$' }
-if (-not $batch -and -not [Console]::IsOutputRedirected) { welcome }
-Remove-Variable batch
+# -NoExit keeps the window interactive after its command, which is how psmux starts every pane
+# (pwsh -NoExit -Command, loading the profile itself), so the banner shows there as it does in tmux
+$stays = [Environment]::GetCommandLineArgs() | Where-Object { $_ -match '^[-/]noe\w*$' }
+if ((-not $batch -or $stays) -and -not [Console]::IsOutputRedirected) { welcome }
+Remove-Variable batch, stays
